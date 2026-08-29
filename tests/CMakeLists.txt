@@ -11,6 +11,8 @@ FetchContent_MakeAvailable(googletest)
 
 add_executable(edgert_tests
     test_tensor.cpp
+    test_operator_registry.cpp
+    test_ops.cpp
 )
 target_link_libraries(edgert_tests PRIVATE edgert_core gtest_main)
 

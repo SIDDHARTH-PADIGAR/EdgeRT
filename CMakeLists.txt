@@ -15,6 +15,10 @@ option(EDGERT_BUILD_TESTS "Build unit tests" ON)
 
 add_library(edgert_core STATIC
     src/tensor.cpp
+    src/operator_registry.cpp
+    src/builtin_ops.cpp
+    src/ops/add.cpp
+    src/ops/relu.cpp
 )
 target_include_directories(edgert_core PUBLIC
     ${CMAKE_CURRENT_SOURCE_DIR}/include
