@@ -12,6 +12,7 @@ endif()
 option(EDGERT_ENABLE_ASAN "Build with AddressSanitizer" OFF)
 option(EDGERT_ENABLE_UBSAN "Build with UndefinedBehaviorSanitizer" OFF)
 option(EDGERT_BUILD_TESTS "Build unit tests" ON)
+option(EDGERT_BUILD_BENCHMARKS "Build benchmark executables" ON)
 
 add_library(edgert_core STATIC
     src/tensor.cpp
@@ -40,6 +41,17 @@ endif()
 
 add_executable(edgert_demo apps/main.cpp)
 target_link_libraries(edgert_demo PRIVATE edgert_core)
+
+if(EDGERT_BUILD_BENCHMARKS)
+    add_executable(edgert_bench
+        bench/bench_utils.cpp
+        bench/bench_ops.cpp
+    )
+    target_link_libraries(edgert_bench PRIVATE edgert_core)
+    # Benchmarks must run optimized even in a Debug configuration, or
+    # we'd be measuring unoptimized debug code by accident.
+    target_compile_options(edgert_bench PRIVATE -O3)
+endif()
 
 if(EDGERT_BUILD_TESTS)
     enable_testing()

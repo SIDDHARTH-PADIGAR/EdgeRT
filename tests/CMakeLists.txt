@@ -16,6 +16,8 @@ add_executable(edgert_tests
     test_graph.cpp
     test_matmul.cpp
     test_linear.cpp
+    test_bench_utils.cpp
+    ${CMAKE_SOURCE_DIR}/bench/bench_utils.cpp
 )
 target_link_libraries(edgert_tests PRIVATE edgert_core gtest_main)
 
