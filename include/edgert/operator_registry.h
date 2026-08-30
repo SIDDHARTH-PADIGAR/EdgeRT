@@ -21,6 +21,8 @@ public:
     OperatorRegistry() = default;
     OperatorRegistry(const OperatorRegistry&) = delete;
     OperatorRegistry& operator=(const OperatorRegistry&) = delete;
+    OperatorRegistry(OperatorRegistry&&) = default;
+    OperatorRegistry& operator=(OperatorRegistry&&) = default;
 
     // Registers a factory under `name`. Throws std::invalid_argument if
     // `name` is already registered.

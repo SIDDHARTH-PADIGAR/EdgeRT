@@ -1,6 +1,8 @@
 #include <iostream>
+#include <unordered_map>
 
 #include "edgert/builtin_ops.h"
+#include "edgert/graph.h"
 #include "edgert/operator_registry.h"
 #include "edgert/tensor.h"
 
@@ -42,6 +44,32 @@ int main() {
     for (int64_t i = 0; i < relu_out.numel(); ++i) {
         std::cout << relu_out.data()[i];
         if (i + 1 < relu_out.numel()) {
+            std::cout << ", ";
+        }
+    }
+    std::cout << "]\n";
+
+    std::cout << "\nGraph demo\n";
+    edgert::Graph graph;
+    graph.add_input("gx");
+    graph.add_input("gy");
+    graph.add_node(edgert::GraphNode{"Add", {"gx", "gy"}, "gsum"});
+    graph.add_node(edgert::GraphNode{"Relu", {"gsum"}, "gout"});
+
+    edgert::Tensor gx({4});
+    edgert::Tensor gy({4});
+    gx.fill(2.0F);
+    gy.fill(-5.0F);
+
+    std::unordered_map<std::string, edgert::Tensor> graph_inputs;
+    graph_inputs.emplace("gx", std::move(gx));
+    graph_inputs.emplace("gy", std::move(gy));
+
+    edgert::Tensor graph_out = graph.run(registry, graph_inputs, "gout");
+    std::cout << "Graph(Add -> Relu) with gx=2, gy=-5 -> [";
+    for (int64_t i = 0; i < graph_out.numel(); ++i) {
+        std::cout << graph_out.data()[i];
+        if (i + 1 < graph_out.numel()) {
             std::cout << ", ";
         }
     }
