@@ -95,5 +95,46 @@ int main() {
     }
     std::cout << "]\n";
 
+    std::cout << "\nTiny MLP demo (Linear -> Relu -> Linear via Graph)\n";
+    edgert::Graph mlp;
+    mlp.add_input("x");
+    mlp.add_input("w1");
+    mlp.add_input("b1");
+    mlp.add_input("w2");
+    mlp.add_input("b2");
+    mlp.add_node(edgert::GraphNode{"Linear", {"x", "w1", "b1"}, "h1"});
+    mlp.add_node(edgert::GraphNode{"Relu", {"h1"}, "h1_relu"});
+    mlp.add_node(edgert::GraphNode{"Linear", {"h1_relu", "w2", "b2"}, "out"});
+
+    edgert::Tensor x({1, 3});
+    float x_vals[] = {1.0F, -2.0F, 3.0F};
+    for (int i = 0; i < 3; ++i) x.data()[i] = x_vals[i];
+
+    edgert::Tensor w1({4, 3});
+    w1.fill(0.5F);
+    edgert::Tensor b1({4});
+    b1.fill(0.1F);
+    edgert::Tensor w2({2, 4});
+    w2.fill(-0.5F);
+    edgert::Tensor b2({2});
+    b2.fill(0.2F);
+
+    std::unordered_map<std::string, edgert::Tensor> mlp_inputs;
+    mlp_inputs.emplace("x", std::move(x));
+    mlp_inputs.emplace("w1", std::move(w1));
+    mlp_inputs.emplace("b1", std::move(b1));
+    mlp_inputs.emplace("w2", std::move(w2));
+    mlp_inputs.emplace("b2", std::move(b2));
+
+    edgert::Tensor mlp_out = mlp.run(registry, mlp_inputs, "out");
+    std::cout << "x=[1,-2,3] through Linear(3->4) -> Relu -> Linear(4->2) -> [";
+    for (int64_t i = 0; i < mlp_out.numel(); ++i) {
+        std::cout << mlp_out.data()[i];
+        if (i + 1 < mlp_out.numel()) {
+            std::cout << ", ";
+        }
+    }
+    std::cout << "]\n";
+
     return 0;
 }

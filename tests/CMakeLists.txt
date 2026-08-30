@@ -15,6 +15,7 @@ add_executable(edgert_tests
     test_ops.cpp
     test_graph.cpp
     test_matmul.cpp
+    test_linear.cpp
 )
 target_link_libraries(edgert_tests PRIVATE edgert_core gtest_main)
 
