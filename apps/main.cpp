@@ -75,5 +75,25 @@ int main() {
     }
     std::cout << "]\n";
 
+    std::cout << "\nMatMul demo\n";
+    edgert::Tensor ma({2, 3});
+    float ma_vals[] = {1, 2, 3, 4, 5, 6};
+    for (int i = 0; i < 6; ++i) ma.data()[i] = ma_vals[i];
+
+    edgert::Tensor mb({3, 2});
+    float mb_vals[] = {7, 8, 9, 10, 11, 12};
+    for (int i = 0; i < 6; ++i) mb.data()[i] = mb_vals[i];
+
+    auto matmul_op = registry.create("MatMul");
+    edgert::Tensor mc = matmul_op->compute({&ma, &mb});
+    std::cout << "[2,3] x [3,2] -> shape [" << mc.shape()[0] << ", " << mc.shape()[1] << "], values [";
+    for (int64_t i = 0; i < mc.numel(); ++i) {
+        std::cout << mc.data()[i];
+        if (i + 1 < mc.numel()) {
+            std::cout << ", ";
+        }
+    }
+    std::cout << "]\n";
+
     return 0;
 }

@@ -19,6 +19,7 @@ add_library(edgert_core STATIC
     src/builtin_ops.cpp
     src/ops/add.cpp
     src/ops/relu.cpp
+    src/ops/matmul.cpp
     src/graph.cpp
 )
 target_include_directories(edgert_core PUBLIC
