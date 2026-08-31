@@ -82,6 +82,63 @@ TEST(MatMulOpTest, ZeroInnerDimensionProducesZeroOutput) {
     }
 }
 
+TEST(MatMulOpTest, WideRowExercisesVectorizedAndRemainderPaths) {
+    // A: [1, 4] of all 1s, B: [4, 10] of all 1s -> every output element is
+    // sum of 4 ones = 4. N=10 is greater than 8 and not a multiple of 8,
+    // so this exercises both the width-8 vectorized loop and the scalar
+    // remainder cleanup, on whichever kernel the CPU dispatches to.
+    Tensor a({1, 4});
+    a.fill(1.0F);
+    Tensor b({4, 10});
+    b.fill(1.0F);
+
+    MatMulOp op;
+    Tensor c = op.compute({&a, &b});
+
+    ASSERT_EQ(c.shape(), (std::vector<int64_t>{1, 10}));
+    for (int64_t i = 0; i < c.numel(); ++i) {
+        EXPECT_FLOAT_EQ(c.data()[i], 4.0F);
+    }
+}
+
+TEST(MatMulOpTest, MatchesReferenceOnNonTrivialSizes) {
+    // Cross-checks MatMulOp's output against a brute-force reference
+    // computed independently right here, using varied (non-constant)
+    // input values so indexing bugs can't hide behind the symmetry of
+    // all-ones or all-zeros test data. N=13 is greater than 8 and not a
+    // multiple of 8, exercising the same vectorized + remainder split as
+    // the test above but with numbers that would expose an off-by-one.
+    constexpr int64_t kM = 3;
+    constexpr int64_t kK = 5;
+    constexpr int64_t kN = 13;
+    Tensor a({kM, kK});
+    Tensor b({kK, kN});
+    for (int64_t i = 0; i < a.numel(); ++i) {
+        a.data()[i] = static_cast<float>((i % 7) - 3);
+    }
+    for (int64_t i = 0; i < b.numel(); ++i) {
+        b.data()[i] = static_cast<float>((i % 5) - 2);
+    }
+
+    MatMulOp op;
+    Tensor c = op.compute({&a, &b});
+
+    std::vector<float> expected(static_cast<std::size_t>(kM * kN), 0.0F);
+    for (int64_t i = 0; i < kM; ++i) {
+        for (int64_t j = 0; j < kN; ++j) {
+            float sum = 0.0F;
+            for (int64_t p = 0; p < kK; ++p) {
+                sum += a.data()[i * kK + p] * b.data()[p * kN + j];
+            }
+            expected[static_cast<std::size_t>(i * kN + j)] = sum;
+        }
+    }
+
+    for (int64_t idx = 0; idx < kM * kN; ++idx) {
+        EXPECT_FLOAT_EQ(c.data()[idx], expected[static_cast<std::size_t>(idx)]);
+    }
+}
+
 TEST(MatMulOpTest, WrongInputCountThrows) {
     Tensor a({2, 2});
     MatMulOp op;

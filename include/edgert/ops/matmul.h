@@ -8,11 +8,12 @@ namespace edgert::ops {
 // [K, N], produces C with shape [M, N] where C[i,j] = sum_k A[i,k]*B[k,j].
 // Both inputs must be rank-2 Float32 tensors with matching inner dimension.
 //
-// The inner loops are ordered i -> k -> j (not the more obvious i -> j -> k)
-// so that both B and the output are walked row-by-row (stride-1), which is
-// what the CPU cache rewards. See src/ops/matmul.cpp for the walkthrough.
-// This is still a single scalar loop nest — no blocking/tiling and no
-// SIMD yet, both of which are later, separate optimizations.
+// The loop order is i -> k -> j for cache-friendly row-major access (see
+// src/ops/matmul.cpp). On top of that, if the CPU supports AVX2+FMA at
+// runtime, the innermost loop is vectorized to process 8 floats at a time;
+// otherwise it transparently falls back to a scalar loop. Either way this
+// produces the same result — the dispatch is an internal implementation
+// detail, not something callers need to know about.
 class MatMulOp : public Operator {
 public:
     std::string name() const override { return "MatMul"; }

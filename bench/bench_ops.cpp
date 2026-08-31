@@ -16,11 +16,8 @@ using edgert::ops::MatMulOp;
 namespace {
 
 // Reference-only implementation using the original i -> j -> k loop order.
-// Kept here purely so the benchmark has an honest "before" number to show
-// next to MatMulOp's current i -> k -> j implementation. It is NOT
-// registered as an Operator — MatMulOp itself now uses the faster order,
-// so there's exactly one MatMul implementation in production, not two
-// competing ones.
+// Kept here purely so the benchmark has an honest "before" number. Not
+// registered as an Operator.
 void naive_ijk_matmul(const Tensor& a, const Tensor& b, Tensor& out) {
     const int64_t m = a.shape()[0];
     const int64_t k = a.shape()[1];
@@ -39,35 +36,75 @@ void naive_ijk_matmul(const Tensor& a, const Tensor& b, Tensor& out) {
     }
 }
 
+// Reference-only scalar i -> k -> j order, with no SIMD. A snapshot of
+// what MatMulOp used before AVX2 dispatch was added, kept here so the
+// benchmark can isolate "cache-friendly order alone" from "cache-friendly
+// order plus vectorization" (what MatMulOp actually runs now). Not
+// registered as an Operator — production has exactly one MatMul
+// implementation, which picks its own fast path internally.
+void scalar_ikj_matmul(const Tensor& a, const Tensor& b, Tensor& out) {
+    const int64_t m = a.shape()[0];
+    const int64_t k = a.shape()[1];
+    const int64_t n = b.shape()[1];
+    const float* pa = a.data();
+    const float* pb = b.data();
+    float* po = out.data();
+    for (int64_t i = 0; i < m; ++i) {
+        for (int64_t p = 0; p < k; ++p) {
+            const float a_val = pa[i * k + p];
+            for (int64_t j = 0; j < n; ++j) {
+                po[i * n + j] += a_val * pb[p * n + j];
+            }
+        }
+    }
+}
+
 void bench_matmul(int64_t m, int64_t k, int64_t n, int warmup, int iters) {
     Tensor a({m, k});
     Tensor b({k, n});
     a.fill(1.0F);
     b.fill(1.0F);
 
-    Tensor naive_out({m, n});
-    auto naive_durations =
-        time_ms([&] { naive_ijk_matmul(a, b, naive_out); }, warmup, iters);
+    Tensor ijk_out({m, n});
+    auto ijk_durations = time_ms([&] { naive_ijk_matmul(a, b, ijk_out); }, warmup, iters);
+
+    Tensor ikj_out({m, n});
+    auto ikj_durations = time_ms(
+        [&] {
+            ikj_out.fill(0.0F);
+            scalar_ikj_matmul(a, b, ikj_out);
+        },
+        warmup, iters);
 
     MatMulOp op;
-    auto ikj_durations = time_ms([&] { Tensor c = op.compute({&a, &b}); }, warmup, iters);
+    auto simd_durations = time_ms([&] { Tensor c = op.compute({&a, &b}); }, warmup, iters);
 
     const double flops_per_run =
         2.0 * static_cast<double>(m) * static_cast<double>(k) * static_cast<double>(n);
 
-    char name[64];
-    std::snprintf(name, sizeof(name), "MatMul ijk (old) [%ld,%ld,%ld]", static_cast<long>(m),
-                  static_cast<long>(k), static_cast<long>(n));
-    const auto naive_stats = summarize(naive_durations);
-    print_result(name, naive_stats, flops_per_run / 1e9);
+    char name[96];
 
-    std::snprintf(name, sizeof(name), "MatMul ikj (current) [%ld,%ld,%ld]", static_cast<long>(m),
+    std::snprintf(name, sizeof(name), "MatMul ijk scalar [%ld,%ld,%ld]", static_cast<long>(m),
+                  static_cast<long>(k), static_cast<long>(n));
+    const auto ijk_stats = summarize(ijk_durations);
+    print_result(name, ijk_stats, flops_per_run / 1e9);
+
+    std::snprintf(name, sizeof(name), "MatMul ikj scalar [%ld,%ld,%ld]", static_cast<long>(m),
                   static_cast<long>(k), static_cast<long>(n));
     const auto ikj_stats = summarize(ikj_durations);
     print_result(name, ikj_stats, flops_per_run / 1e9);
 
-    std::printf("  -> %.2fx faster from loop reordering alone (same math, same FLOPs)\n\n",
-                naive_stats.min_ms / ikj_stats.min_ms);
+    std::snprintf(name, sizeof(name), "MatMul ikj AVX2 (current) [%ld,%ld,%ld]", static_cast<long>(m),
+                  static_cast<long>(k), static_cast<long>(n));
+    const auto simd_stats = summarize(simd_durations);
+    print_result(name, simd_stats, flops_per_run / 1e9);
+
+    std::printf("  -> %.2fx faster: ijk -> ikj (cache order alone)\n",
+                ijk_stats.min_ms / ikj_stats.min_ms);
+    std::printf("  -> %.2fx faster: ikj scalar -> ikj AVX2 (vectorization alone)\n",
+                ikj_stats.min_ms / simd_stats.min_ms);
+    std::printf("  -> %.2fx faster overall: ijk -> current MatMulOp\n\n",
+                ijk_stats.min_ms / simd_stats.min_ms);
 }
 
 void bench_linear(int64_t batch, int64_t in_features, int64_t out_features, int warmup, int iters) {
@@ -93,7 +130,8 @@ void bench_linear(int64_t batch, int64_t in_features, int64_t out_features, int 
 }  // namespace
 
 int main() {
-    std::printf("EdgeRT operator benchmarks (naive, single-threaded, no SIMD)\n\n");
+    std::printf("EdgeRT operator benchmarks (single-threaded; MatMul auto-dispatches to AVX2+FMA "
+                 "when available, Linear is scalar)\n\n");
 
     constexpr int kWarmup = 3;
     constexpr int kIters = 10;
