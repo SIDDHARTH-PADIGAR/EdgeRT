@@ -107,6 +107,22 @@ void bench_matmul(int64_t m, int64_t k, int64_t n, int warmup, int iters) {
                 ijk_stats.min_ms / simd_stats.min_ms);
 }
 
+// Reference-only scalar Linear, kept purely so the benchmark can show a
+// "before" number next to LinearOp's current AVX2-dispatched
+// implementation. Not registered as an Operator.
+void scalar_linear(int64_t batch, int64_t in_features, int64_t out_features, const float* px,
+                    const float* pw, const float* pb, float* po) {
+    for (int64_t n = 0; n < batch; ++n) {
+        for (int64_t o = 0; o < out_features; ++o) {
+            float sum = pb[o];
+            for (int64_t i = 0; i < in_features; ++i) {
+                sum += px[n * in_features + i] * pw[o * in_features + i];
+            }
+            po[n * out_features + o] = sum;
+        }
+    }
+}
+
 void bench_linear(int64_t batch, int64_t in_features, int64_t out_features, int warmup, int iters) {
     Tensor x({batch, in_features});
     Tensor w({out_features, in_features});
@@ -114,24 +130,41 @@ void bench_linear(int64_t batch, int64_t in_features, int64_t out_features, int 
     x.fill(1.0F);
     w.fill(1.0F);
     b.fill(0.0F);
-    LinearOp op;
 
-    auto durations = time_ms([&] { Tensor y = op.compute({&x, &w, &b}); }, warmup, iters);
+    Tensor scalar_out({batch, out_features});
+    auto scalar_durations = time_ms(
+        [&] {
+            scalar_linear(batch, in_features, out_features, x.data(), w.data(), b.data(),
+                          scalar_out.data());
+        },
+        warmup, iters);
+
+    LinearOp op;
+    auto simd_durations = time_ms([&] { Tensor y = op.compute({&x, &w, &b}); }, warmup, iters);
 
     const double flops_per_run = 2.0 * static_cast<double>(batch) *
                                   static_cast<double>(in_features) * static_cast<double>(out_features);
 
-    char name[64];
-    std::snprintf(name, sizeof(name), "Linear batch=%ld %ld->%ld", static_cast<long>(batch),
+    char name[96];
+    std::snprintf(name, sizeof(name), "Linear scalar batch=%ld %ld->%ld", static_cast<long>(batch),
                   static_cast<long>(in_features), static_cast<long>(out_features));
-    print_result(name, summarize(durations), flops_per_run / 1e9);
+    const auto scalar_stats = summarize(scalar_durations);
+    print_result(name, scalar_stats, flops_per_run / 1e9);
+
+    std::snprintf(name, sizeof(name), "Linear AVX2 (current) batch=%ld %ld->%ld",
+                  static_cast<long>(batch), static_cast<long>(in_features), static_cast<long>(out_features));
+    const auto simd_stats = summarize(simd_durations);
+    print_result(name, simd_stats, flops_per_run / 1e9);
+
+    std::printf("  -> %.2fx faster: scalar -> current LinearOp\n\n",
+                scalar_stats.min_ms / simd_stats.min_ms);
 }
 
 }  // namespace
 
 int main() {
-    std::printf("EdgeRT operator benchmarks (single-threaded; MatMul auto-dispatches to AVX2+FMA "
-                 "when available, Linear is scalar)\n\n");
+    std::printf("EdgeRT operator benchmarks (single-threaded; MatMul and Linear both "
+                 "auto-dispatch to AVX2+FMA when available)\n\n");
 
     constexpr int kWarmup = 3;
     constexpr int kIters = 10;

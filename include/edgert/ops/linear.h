@@ -14,7 +14,11 @@ namespace edgert::ops {
 //
 // W is stored [out_features, in_features] (not [in_features, out_features])
 // so no separate Transpose step is needed; this op reads W as if
-// transposed internally.
+// transposed internally. Each output element is a dot product of an x row
+// and a W row (both already contiguous, no cache-order fix needed like
+// MatMul). If the CPU supports AVX2+FMA at runtime, that dot product is
+// computed 8 floats at a time; otherwise it falls back to a scalar loop.
+// Same result either way.
 class LinearOp : public Operator {
 public:
     std::string name() const override { return "Linear"; }

@@ -57,6 +57,67 @@ TEST(LinearOpTest, BatchOfTwoSamples) {
     EXPECT_FLOAT_EQ(y.data()[1], 2 * 3 + 2 * 4);  // 14
 }
 
+TEST(LinearOpTest, WideInFeaturesExercisesVectorizedAndRemainderPaths) {
+    // in_features=11 is greater than 8 and not a multiple of 8, so this
+    // exercises both the width-8 vectorized dot-product loop and the
+    // scalar remainder cleanup, on whichever kernel the CPU dispatches to.
+    Tensor x({1, 11});
+    x.fill(1.0F);
+    Tensor w({1, 11});
+    w.fill(1.0F);
+    Tensor b({1});
+    b.data()[0] = 100.0F;
+
+    LinearOp op;
+    Tensor y = op.compute({&x, &w, &b});
+
+    ASSERT_EQ(y.shape(), (std::vector<int64_t>{1, 1}));
+    // 11 ones dotted with 11 ones = 11, plus bias 100 = 111.
+    EXPECT_FLOAT_EQ(y.data()[0], 111.0F);
+}
+
+TEST(LinearOpTest, MatchesReferenceOnNonTrivialSizes) {
+    // Cross-checks LinearOp's output against a brute-force reference
+    // computed independently right here, using varied (non-constant)
+    // input values so indexing bugs can't hide behind the symmetry of
+    // all-ones test data. in_features=13 is greater than 8 and not a
+    // multiple of 8, exercising the same vectorized + remainder split as
+    // the test above but with numbers that would expose an off-by-one.
+    constexpr int64_t kBatch = 3;
+    constexpr int64_t kIn = 13;
+    constexpr int64_t kOut = 4;
+    Tensor x({kBatch, kIn});
+    Tensor w({kOut, kIn});
+    Tensor b({kOut});
+    for (int64_t i = 0; i < x.numel(); ++i) {
+        x.data()[i] = static_cast<float>((i % 7) - 3);
+    }
+    for (int64_t i = 0; i < w.numel(); ++i) {
+        w.data()[i] = static_cast<float>((i % 5) - 2);
+    }
+    for (int64_t i = 0; i < kOut; ++i) {
+        b.data()[i] = static_cast<float>(i);
+    }
+
+    LinearOp op;
+    Tensor y = op.compute({&x, &w, &b});
+
+    std::vector<float> expected(static_cast<std::size_t>(kBatch * kOut), 0.0F);
+    for (int64_t n = 0; n < kBatch; ++n) {
+        for (int64_t o = 0; o < kOut; ++o) {
+            float sum = b.data()[o];
+            for (int64_t i = 0; i < kIn; ++i) {
+                sum += x.data()[n * kIn + i] * w.data()[o * kIn + i];
+            }
+            expected[static_cast<std::size_t>(n * kOut + o)] = sum;
+        }
+    }
+
+    for (int64_t idx = 0; idx < kBatch * kOut; ++idx) {
+        EXPECT_FLOAT_EQ(y.data()[idx], expected[static_cast<std::size_t>(idx)]);
+    }
+}
+
 TEST(LinearOpTest, WrongInputCountThrows) {
     Tensor x({1, 3});
     Tensor w({2, 3});
