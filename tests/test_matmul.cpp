@@ -68,6 +68,20 @@ TEST(MatMulOpTest, WrongRankThrows) {
     EXPECT_THROW(op.compute({&a, &b}), std::invalid_argument);
 }
 
+TEST(MatMulOpTest, ZeroInnerDimensionProducesZeroOutput) {
+    // A is [2, 0], B is [0, 3]: the reduction dimension is empty, so every
+    // output element is a sum over zero terms, i.e. 0.
+    Tensor a({2, 0});
+    Tensor b({0, 3});
+    MatMulOp op;
+    Tensor c = op.compute({&a, &b});
+
+    ASSERT_EQ(c.shape(), (std::vector<int64_t>{2, 3}));
+    for (int64_t i = 0; i < c.numel(); ++i) {
+        EXPECT_FLOAT_EQ(c.data()[i], 0.0F);
+    }
+}
+
 TEST(MatMulOpTest, WrongInputCountThrows) {
     Tensor a({2, 2});
     MatMulOp op;
