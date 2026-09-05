@@ -1,6 +1,7 @@
 #pragma once
 
 #include "edgert/operator.h"
+#include "edgert/thread_pool.h"
 
 namespace edgert::ops {
 
@@ -19,5 +20,16 @@ public:
     std::string name() const override { return "MatMul"; }
     Tensor compute(const std::vector<const Tensor*>& inputs) const override;
 };
+
+// Parallel variant of the exact same computation as MatMulOp::compute(),
+// split across `pool`'s worker threads by output row: each thread computes
+// a contiguous, disjoint band of output rows, so there's no data race on
+// the output buffer and no locking needed while computing.
+//
+// This is purely additive — MatMulOp itself is untouched and still runs
+// single-threaded. matmul_parallel() is an explicit opt-in for callers who
+// already have a ThreadPool and a matrix big enough that splitting the
+// work across cores outweighs the cost of coordinating threads.
+Tensor matmul_parallel(const Tensor& a, const Tensor& b, ThreadPool& pool);
 
 }  // namespace edgert::ops

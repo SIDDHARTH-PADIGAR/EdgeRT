@@ -1,17 +1,21 @@
 #include <cstdint>
 #include <cstdio>
+#include <thread>
 
 #include "edgert/bench_utils.h"
 #include "edgert/ops/linear.h"
 #include "edgert/ops/matmul.h"
 #include "edgert/tensor.h"
+#include "edgert/thread_pool.h"
 
 using edgert::Tensor;
+using edgert::ThreadPool;
 using edgert::bench::print_result;
 using edgert::bench::summarize;
 using edgert::bench::time_ms;
 using edgert::ops::LinearOp;
 using edgert::ops::MatMulOp;
+using edgert::ops::matmul_parallel;
 
 namespace {
 
@@ -160,11 +164,45 @@ void bench_linear(int64_t batch, int64_t in_features, int64_t out_features, int 
                 scalar_stats.min_ms / simd_stats.min_ms);
 }
 
+void bench_matmul_threaded(int64_t m, int64_t k, int64_t n, int warmup, int iters) {
+    Tensor a({m, k});
+    Tensor b({k, n});
+    a.fill(1.0F);
+    b.fill(1.0F);
+
+    MatMulOp op;
+    auto single_durations = time_ms([&] { Tensor c = op.compute({&a, &b}); }, warmup, iters);
+
+    const unsigned hw = std::thread::hardware_concurrency();
+    const std::size_t num_threads = hw > 0 ? hw : 4;
+    ThreadPool pool(num_threads);
+    auto multi_durations =
+        time_ms([&] { Tensor c = matmul_parallel(a, b, pool); }, warmup, iters);
+
+    const double flops_per_run =
+        2.0 * static_cast<double>(m) * static_cast<double>(k) * static_cast<double>(n);
+
+    char name[96];
+    std::snprintf(name, sizeof(name), "MatMul 1-thread (AVX2) [%ld,%ld,%ld]", static_cast<long>(m),
+                  static_cast<long>(k), static_cast<long>(n));
+    const auto single_stats = summarize(single_durations);
+    print_result(name, single_stats, flops_per_run / 1e9);
+
+    std::snprintf(name, sizeof(name), "MatMul %zu-thread (AVX2) [%ld,%ld,%ld]", num_threads,
+                  static_cast<long>(m), static_cast<long>(k), static_cast<long>(n));
+    const auto multi_stats = summarize(multi_durations);
+    print_result(name, multi_stats, flops_per_run / 1e9);
+
+    std::printf("  -> %.2fx faster: 1-thread -> %zu-thread\n\n",
+                single_stats.min_ms / multi_stats.min_ms, num_threads);
+}
+
 }  // namespace
 
 int main() {
-    std::printf("EdgeRT operator benchmarks (single-threaded; MatMul and Linear both "
-                 "auto-dispatch to AVX2+FMA when available)\n\n");
+    std::printf(
+        "EdgeRT operator benchmarks (MatMul and Linear auto-dispatch to AVX2+FMA when "
+        "available; MatMul also has an explicit multithreaded variant)\n\n");
 
     constexpr int kWarmup = 3;
     constexpr int kIters = 10;
@@ -176,5 +214,7 @@ int main() {
     bench_linear(1, 256, 256, kWarmup, kIters);
     bench_linear(32, 256, 256, kWarmup, kIters);
 
+    bench_matmul_threaded(512, 512, 512, kWarmup, kIters);
+
     return 0;
-}
+}   // namespace

@@ -17,9 +17,11 @@ add_executable(edgert_tests
     test_matmul.cpp
     test_linear.cpp
     test_bench_utils.cpp
+    test_thread_pool.cpp
+    test_matmul_parallel.cpp
     ${CMAKE_SOURCE_DIR}/bench/bench_utils.cpp
 )
-target_link_libraries(edgert_tests PRIVATE edgert_core gtest_main)
+target_link_libraries(edgert_tests PRIVATE edgert_core gtest_main Threads::Threads)
 
 include(GoogleTest)
 gtest_discover_tests(edgert_tests)
